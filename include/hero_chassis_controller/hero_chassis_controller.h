@@ -13,6 +13,7 @@
 #include <realtime_tools/realtime_buffer.h>
 #include <ros/ros.h>
 #include <tf2_ros/transform_broadcaster.h>
+#include <tf/transform_listener.h>
 
 namespace hero_chassis_controller {
 
@@ -38,14 +39,13 @@ class HeroChassisController
         double wz = 0.0;
         ros::Time stamp;
 
-        // false: robot frame; true: odom frame
-        bool world_frame = false;
     };
 
 
   void cmdVelCallback(const geometry_msgs::TwistConstPtr& msg);
-    void cmdVelWorldCallback(
-        const geometry_msgs::TwistConstPtr& msg);
+  void cmdVelWorldCallback(const geometry_msgs::TwistConstPtr& msg);
+  void acceptVelocityCommand(const geometry_msgs::TwistConstPtr& msg,
+                             bool use_world_frame);
 
   void updateOdometry(const ros::Time& time, double dt);
   void publishOdometry(const ros::Time& time,
@@ -57,7 +57,9 @@ class HeroChassisController
 
   realtime_tools::RealtimeBuffer<VelocityCommand> command_buffer_;
     ros::Subscriber cmd_vel_sub_;
-    ros::Subscriber cmd_vel_world_sub_;
+  ros::Subscriber cmd_vel_world_sub_;
+  std::string velocity_frame_mode_ = "body";
+  tf::TransformListener tf_listener_;
 
   double wheel_radius_ = 0.07625;
   double wheel_track_ = 0.4;
