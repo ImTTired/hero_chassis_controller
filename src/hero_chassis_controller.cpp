@@ -116,6 +116,10 @@ bool HeroChassisController::init(
       "/cmd_vel", 1,
       &HeroChassisController::cmdVelCallback, this);
 
+  cmd_vel_world_sub_ = root_nh.subscribe(
+      "/cmd_vel_world", 1,
+      &HeroChassisController::cmdVelWorldCallback, this);
+
   ROS_INFO("Hero chassis V0.3 initialized.");
   return true;
 }
@@ -133,7 +137,29 @@ void HeroChassisController::cmdVelCallback(
   command.vx = msg->linear.x;
   command.vy = msg->linear.y;
   command.wz = msg->angular.z;
+  command.world_frame = false;
   command.stamp = ros::Time::now();
+
+  command_buffer_.writeFromNonRT(command);
+}
+
+  void HeroChassisController::cmdVelWorldCallback(
+      const geometry_msgs::TwistConstPtr& msg) {
+
+  if (!std::isfinite(msg->linear.x) ||
+      !std::isfinite(msg->linear.y) ||
+      !std::isfinite(msg->angular.z)) {
+    return;
+      }
+
+  VelocityCommand command;
+
+  command.vx = msg->linear.x;
+  command.vy = msg->linear.y;
+  command.wz = msg->angular.z;
+
+  command.stamp = ros::Time::now();
+  command.world_frame = true;
 
   command_buffer_.writeFromNonRT(command);
 }
@@ -175,15 +201,31 @@ void HeroChassisController::update(
   double vy = 0.0;
   double wz = 0.0;
 
+
   if (command != nullptr && !command->stamp.isZero()) {
     const double age = (time - command->stamp).toSec();
 
     if (age >= 0.0 && age <= command_timeout_) {
-      vx = command->vx;
-      vy = command->vy;
+
+      if (command->world_frame) {
+        // V0.4: odom-frame velocity to body-frame velocity
+        const double c = std::cos(yaw_);
+        const double s = std::sin(yaw_);
+
+        vx = c * command->vx + s * command->vy;
+        vy = -s * command->vx + c * command->vy;
+
+      } else {
+        // Original body-frame velocity command
+        vx = command->vx;
+        vy = command->vy;
+      }
+
+      // Angular velocity is about the vertical Z axis.
       wz = command->wz;
     }
   }
+
 
   // V0.2: mecanum inverse kinematics
   const double k = (wheel_track_ + wheel_base_) / 2.0;

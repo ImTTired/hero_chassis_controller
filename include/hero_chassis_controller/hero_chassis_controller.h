@@ -32,14 +32,20 @@ class HeroChassisController
   void stopping(const ros::Time& time) override;
 
  private:
-  struct VelocityCommand {
-    double vx = 0.0;
-    double vy = 0.0;
-    double wz = 0.0;
-    ros::Time stamp;
-  };
+    struct VelocityCommand {
+        double vx = 0.0;
+        double vy = 0.0;
+        double wz = 0.0;
+        ros::Time stamp;
+
+        // false: robot frame; true: odom frame
+        bool world_frame = false;
+    };
+
 
   void cmdVelCallback(const geometry_msgs::TwistConstPtr& msg);
+    void cmdVelWorldCallback(
+        const geometry_msgs::TwistConstPtr& msg);
 
   void updateOdometry(const ros::Time& time, double dt);
   void publishOdometry(const ros::Time& time,
@@ -50,7 +56,8 @@ class HeroChassisController
   std::array<control_toolbox::Pid, 4> pids_;
 
   realtime_tools::RealtimeBuffer<VelocityCommand> command_buffer_;
-  ros::Subscriber cmd_vel_sub_;
+    ros::Subscriber cmd_vel_sub_;
+    ros::Subscriber cmd_vel_world_sub_;
 
   double wheel_radius_ = 0.07625;
   double wheel_track_ = 0.4;
