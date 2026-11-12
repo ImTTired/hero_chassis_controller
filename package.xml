@@ -2,6 +2,7 @@
 <package format="2">
   <depend>nav_msgs</depend>
   <depend>tf2_ros</depend>
+  <depend>tf</depend>
   <name>hero_chassis_controller</name>
   <version>0.1.0</version>
   <description>ROS Control mecanum chassis controller for RoboMaster Hero.</description>

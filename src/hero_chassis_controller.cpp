@@ -97,6 +97,16 @@ bool HeroChassisController::init(
   controller_nh.param(
       "base_frame", base_frame_, std::string("base_link"));
   controller_nh.param("publish_tf", publish_tf_, false);
+  controller_nh.param("velocity_frame_mode", velocity_frame_mode_,
+                      std::string("body"));
+  if (velocity_frame_mode_ != "body" && velocity_frame_mode_ != "world") {
+    ROS_ERROR("velocity_frame_mode must be body or world");
+    return false;
+  }
+  if (velocity_frame_mode_ == "world" && !publish_tf_) {
+    ROS_ERROR("World mode requires publish_tf=true (or an external odom TF publisher)");
+    return false;
+  }
 
   if (!std::isfinite(odom_publish_rate_) ||
       odom_publish_rate_ <= 0.0 ||
@@ -120,16 +130,28 @@ bool HeroChassisController::init(
       "/cmd_vel_world", 1,
       &HeroChassisController::cmdVelWorldCallback, this);
 
-  ROS_INFO("Hero chassis V0.3 initialized.");
+  ROS_INFO_STREAM("Hero chassis initialized, velocity_frame_mode="
+                  << velocity_frame_mode_);
   return true;
 }
 
 void HeroChassisController::cmdVelCallback(
     const geometry_msgs::TwistConstPtr& msg) {
+  acceptVelocityCommand(msg, velocity_frame_mode_ == "world");
+}
 
+void HeroChassisController::cmdVelWorldCallback(
+    const geometry_msgs::TwistConstPtr& msg) {
+  // Backwards-compatible input: always interpreted in odom frame.
+  acceptVelocityCommand(msg, true);
+}
+
+void HeroChassisController::acceptVelocityCommand(
+    const geometry_msgs::TwistConstPtr& msg, bool use_world_frame) {
   if (!std::isfinite(msg->linear.x) ||
       !std::isfinite(msg->linear.y) ||
       !std::isfinite(msg->angular.z)) {
+    ROS_WARN_THROTTLE(2.0, "Ignoring non-finite velocity command");
     return;
   }
 
@@ -137,30 +159,32 @@ void HeroChassisController::cmdVelCallback(
   command.vx = msg->linear.x;
   command.vy = msg->linear.y;
   command.wz = msg->angular.z;
-  command.world_frame = false;
+
+  if (use_world_frame) {
+    // Perform TF lookup outside the real-time controller update loop.
+    // Use the latest available odom -> base_link transform.
+    tf::Stamped<tf::Vector3> world_velocity(
+        tf::Vector3(msg->linear.x, msg->linear.y, 0.0),
+        ros::Time(0), odom_frame_);
+    tf::Stamped<tf::Vector3> body_velocity;
+    try {
+      tf_listener_.transformVector(
+          base_frame_, world_velocity, body_velocity);
+    } catch (const tf::TransformException& error) {
+      ROS_WARN_STREAM_THROTTLE(
+          1.0, "Cannot transform velocity from " << odom_frame_
+          << " to " << base_frame_ << ": " << error.what());
+      // Do not turn an untransformable global command into a body command.
+      VelocityCommand safe_stop;
+      command_buffer_.writeFromNonRT(safe_stop);
+      return;
+    }
+    command.vx = body_velocity.x();
+    command.vy = body_velocity.y();
+  }
+
+  // Twist has no header; time of receipt is the command timestamp.
   command.stamp = ros::Time::now();
-
-  command_buffer_.writeFromNonRT(command);
-}
-
-  void HeroChassisController::cmdVelWorldCallback(
-      const geometry_msgs::TwistConstPtr& msg) {
-
-  if (!std::isfinite(msg->linear.x) ||
-      !std::isfinite(msg->linear.y) ||
-      !std::isfinite(msg->angular.z)) {
-    return;
-      }
-
-  VelocityCommand command;
-
-  command.vx = msg->linear.x;
-  command.vy = msg->linear.y;
-  command.wz = msg->angular.z;
-
-  command.stamp = ros::Time::now();
-  command.world_frame = true;
-
   command_buffer_.writeFromNonRT(command);
 }
 
@@ -207,20 +231,10 @@ void HeroChassisController::update(
 
     if (age >= 0.0 && age <= command_timeout_) {
 
-      if (command->world_frame) {
-        // V0.4: odom-frame velocity to body-frame velocity
-        const double c = std::cos(yaw_);
-        const double s = std::sin(yaw_);
-
-        vx = c * command->vx + s * command->vy;
-        vy = -s * command->vx + c * command->vy;
-
-      } else {
-        // Original body-frame velocity command
-        vx = command->vx;
-        vy = command->vy;
-      }
-
+      // The callback already transformed commands into base_link.
+      // The real-time loop performs no TF lookup.
+      vx = command->vx;
+      vy = command->vy;
       // Angular velocity is about the vertical Z axis.
       wz = command->wz;
     }
