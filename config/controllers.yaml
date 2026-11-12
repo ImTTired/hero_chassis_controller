@@ -16,6 +16,10 @@ controller:
     max_wheel_speed: 20.0
     command_timeout: 0.5
 
+    # Task 7: body = /cmd_vel in base_link; world = /cmd_vel in odom.
+    # Mode is read on controller initialization; reload controller to change.
+    velocity_frame_mode: body
+
     pid:
       p: 0.5
       i: 0.0
