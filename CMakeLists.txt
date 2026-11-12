@@ -17,6 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
         realtime_tools
         nav_msgs
         tf2_ros
+        tf
 )
 
 catkin_package(
@@ -32,6 +33,7 @@ catkin_package(
         realtime_tools
         nav_msgs
         tf2_ros
+        tf
 )
 
 include_directories(
